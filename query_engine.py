@@ -45,6 +45,18 @@ def get_embedding_model(model_name: str = "all-MiniLM-L6-v2") -> SentenceTransfo
     return _EMBEDDING_MODEL
 
 
+def sync_secrets():
+    load_dotenv()
+    try:
+        import streamlit as st
+        if hasattr(st, "secrets"):
+            for k, v in st.secrets.items():
+                if isinstance(v, str):
+                    os.environ[k] = str(v)
+    except Exception:
+        pass
+
+
 def search_chunks(
     question: str,
     repo_url: str,
@@ -56,7 +68,7 @@ def search_chunks(
     2. Executes cosine similarity search (<=> operator) against pgvector code_chunks table.
     3. Returns top_k matching chunks with file path, line numbers, text, language, and similarity score.
     """
-    load_dotenv()
+    sync_secrets()
     resolved_db_url = db_url or os.getenv("DATABASE_URL")
     if not resolved_db_url:
         raise ValueError("DATABASE_URL is required for searching chunks.")
@@ -126,7 +138,7 @@ def generate_answer(
     2. Instructs Gemini to answer strictly using only the provided code context.
     3. Calls Google Gemini API and returns the generated response text.
     """
-    load_dotenv()
+    sync_secrets()
     resolved_api_key = api_key or os.getenv("GEMINI_API_KEY")
     if not resolved_api_key or resolved_api_key.strip() == "your_gemini_api_key_here":
         raise ValueError(

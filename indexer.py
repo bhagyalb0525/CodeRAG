@@ -287,6 +287,14 @@ def index_repository(repo_url: str, db_url: Optional[str] = None) -> Dict[str, A
     5. Stores vector chunks into PostgreSQL + pgvector
     """
     load_dotenv()
+    try:
+        import streamlit as st
+        if hasattr(st, "secrets"):
+            for k, v in st.secrets.items():
+                if isinstance(v, str):
+                    os.environ[k] = str(v)
+    except Exception:
+        pass
     
     resolved_db_url = db_url or os.getenv("DATABASE_URL")
     if not resolved_db_url:

@@ -2,12 +2,19 @@ import os
 import streamlit as st
 from dotenv import load_dotenv
 
+# Load environment variables (.env locally, or st.secrets on Streamlit Cloud)
+load_dotenv()
+try:
+    if hasattr(st, "secrets"):
+        for k, v in st.secrets.items():
+            if isinstance(v, str):
+                os.environ[k] = str(v)
+except Exception:
+    pass
+
 # Import Phase 1 and Phase 2 backend modules
 from indexer import index_repository
 from query_engine import search_chunks, generate_answer
-
-# Load environment variables
-load_dotenv()
 
 # Streamlit Page Config
 st.set_page_config(
