@@ -290,9 +290,14 @@ def index_repository(repo_url: str, db_url: Optional[str] = None) -> Dict[str, A
     try:
         import streamlit as st
         if hasattr(st, "secrets"):
-            for k, v in st.secrets.items():
-                if isinstance(v, str):
-                    os.environ[k] = str(v)
+            sec = st.secrets
+            for k in list(sec.keys()):
+                try:
+                    val = sec[k]
+                    if isinstance(val, str):
+                        os.environ[k] = val
+                except Exception:
+                    pass
     except Exception:
         pass
     
