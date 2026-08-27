@@ -19,6 +19,11 @@ env/
 .DS_Store
 Thumbs.db
 
+# Node.js dependencies & builds
+node_modules/
+dist/
+
 # Test scripts
 test_chunker.py
 test_query.py
+
