@@ -2,7 +2,7 @@
 
 A full-stack RAG (Retrieval-Augmented Generation) application allowing users to point to any public GitHub repository and ask natural language questions about its source code.
 
-Built with **FastAPI**, **React (Vite + Lucide)**, **PostgreSQL + pgvector**, **sentence-transformers**, and **Google Gemini API**.
+Built with **FastAPI**, **React (Vite + Lucide)**, **PostgreSQL + pgvector**, and **Google Gemini API**.
 
 ---
 
@@ -10,7 +10,7 @@ Built with **FastAPI**, **React (Vite + Lucide)**, **PostgreSQL + pgvector**, **
 
 - **React Frontend (`frontend/`)**: Modern dark glassmorphic UI built with Vite, React, Lucide Icons, and React Markdown.
 - **FastAPI Backend Server (`api.py`)**: REST API endpoints for repository ingestion (`/api/index`), vector Q&A search (`/api/query`), and health monitoring (`/api/health`).
-- **`indexer.py`**: Git clone ingestion, source code chunking (50-line blocks), local 384d vector embedding (`sentence-transformers/all-MiniLM-L6-v2`), and `pgvector` database storage.
+- **`indexer.py`**: Git clone ingestion, source code chunking (50-line blocks), 384d vector embedding (`Google Gemini gemini-embedding-001`), and `pgvector` database storage.
 - **`query_engine.py`**: Cosine similarity vector search (`<=>` operator) and grounded RAG answer generation using **Google Gemini API**.
 
 ---

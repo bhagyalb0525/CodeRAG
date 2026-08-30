@@ -48,8 +48,8 @@ with st.sidebar:
     st.markdown("### How this works")
     st.info(
         "This tool clones your GitHub repo, breaks the source code into chunks, "
-        "embeds them locally using `sentence-transformers`, and uses RAG to answer "
-        "your questions using only your actual code as context."
+        "embeds them using Google's hosted Gemini Embedding API (`gemini-embedding-001`), "
+        "and uses RAG to answer your questions using only your actual code as context."
     )
     
     st.divider()
@@ -65,7 +65,7 @@ with st.sidebar:
         st.warning("⚪ No repository indexed yet.")
 
     st.divider()
-    st.caption("Built with Streamlit, PostgreSQL + pgvector, sentence-transformers & Gemini API.")
+    st.caption("Built with Streamlit, PostgreSQL + pgvector & Google Gemini API.")
 
 
 # Main UI Header

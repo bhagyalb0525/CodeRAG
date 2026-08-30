@@ -8,21 +8,13 @@ from typing import List, Dict, Any, Optional
 from pathlib import Path
 from dotenv import load_dotenv
 
-# Suppress harmless HuggingFace transformers warning logs
-os.environ["TRANSFORMERS_VERBOSITY"] = "error"
-warnings.filterwarnings("ignore")
-logging.getLogger("transformers").setLevel(logging.ERROR)
+import time
 
 # Third-party imports
 try:
     import git
 except ImportError:
     git = None
-
-try:
-    from sentence_transformers import SentenceTransformer
-except ImportError:
-    SentenceTransformer = None
 
 try:
     import psycopg2
@@ -35,6 +27,7 @@ except ImportError:
 # Configure logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger("CodeIndexer")
+
 
 # Allowed extensions and language mapping
 SUPPORTED_EXTENSIONS = {
@@ -186,24 +179,88 @@ def process_repository_files(repo_path: str, files: List[Path]) -> List[Dict[str
     return all_chunks
 
 
-def generate_embeddings(chunks: List[Dict[str, Any]], model_name: str = "all-MiniLM-L6-v2") -> List[List[float]]:
+def generate_embeddings(
+    chunks: List[Dict[str, Any]],
+    api_key: Optional[str] = None,
+    batch_size: int = 50
+) -> List[List[float]]:
     """
-    Uses sentence-transformers to generate 384-dim vector embeddings for each chunk's text in batch.
+    Uses Google Gemini Embedding API (gemini-embedding-001) to generate 384-dim vector
+    embeddings for each chunk's text in batches of 50 with retry-on-failure.
     """
-    if SentenceTransformer is None:
-        raise RuntimeError("sentence-transformers is not installed. Please run `pip install sentence-transformers`.")
-
     if not chunks:
         return []
 
-    logger.info(f"Loading embedding model '{model_name}'...")
-    model = SentenceTransformer(model_name)
+    resolved_api_key = api_key or os.getenv("GEMINI_API_KEY")
+    if not resolved_api_key or resolved_api_key.strip() in ("", "your_gemini_api_key_here"):
+        raise ValueError(
+            "GEMINI_API_KEY is missing or invalid. Please set GEMINI_API_KEY in your .env file "
+            "or obtain one from https://aistudio.google.com/app/apikey"
+        )
 
     texts = [chunk["chunk_text"] for chunk in chunks]
-    logger.info(f"Generating embeddings for {len(texts)} chunks in batches...")
-    
-    embeddings = model.encode(texts, batch_size=32, show_progress_bar=True, convert_to_numpy=True)
-    return embeddings.tolist()
+    total = len(texts)
+    logger.info(f"Generating 384-dim Gemini embeddings for {total} chunks in batches of {batch_size}...")
+
+    all_embeddings: List[List[float]] = []
+
+    for i in range(0, total, batch_size):
+        batch_texts = texts[i : i + batch_size]
+        batch_num = (i // batch_size) + 1
+        total_batches = (total + batch_size - 1) // batch_size
+        logger.info(f"Embedding batch {batch_num}/{total_batches} ({len(batch_texts)} chunks)...")
+
+        batch_embeddings = None
+        max_retries = 3
+
+        for attempt in range(1, max_retries + 1):
+            try:
+                # Attempt modern google-genai SDK
+                try:
+                    from google import genai
+                    from google.genai import types
+                    client = genai.Client(api_key=resolved_api_key)
+                    res = client.models.embed_content(
+                        model="gemini-embedding-001",
+                        contents=batch_texts,
+                        config=types.EmbedContentConfig(
+                            task_type="RETRIEVAL_DOCUMENT",
+                            output_dimensionality=384
+                        )
+                    )
+                    if res and res.embeddings:
+                        batch_embeddings = [e.values for e in res.embeddings]
+                except Exception as e_modern:
+                    logger.debug(f"google-genai modern embed attempt {attempt} failed/skipped: {e_modern}")
+
+                # Attempt legacy google-generativeai SDK if modern didn't return
+                if batch_embeddings is None:
+                    import google.generativeai as ggenai
+                    ggenai.configure(api_key=resolved_api_key)
+                    res = ggenai.embed_content(
+                        model="models/gemini-embedding-001",
+                        content=batch_texts,
+                        task_type="retrieval_document",
+                        output_dimensionality=384
+                    )
+                    if res and "embedding" in res:
+                        batch_embeddings = res["embedding"]
+
+                if batch_embeddings is not None and len(batch_embeddings) == len(batch_texts):
+                    all_embeddings.extend(batch_embeddings)
+                    break
+                else:
+                    raise RuntimeError("API response did not return expected embedding list length.")
+
+            except Exception as err:
+                logger.warning(f"Batch {batch_num} embedding attempt {attempt}/{max_retries} failed: {err}")
+                if attempt < max_retries:
+                    sleep_sec = 2 ** attempt
+                    time.sleep(sleep_sec)
+                else:
+                    raise RuntimeError(f"Failed to generate embeddings for batch {batch_num} after {max_retries} attempts: {err}")
+
+    return all_embeddings
 
 
 def setup_database(conn) -> None:

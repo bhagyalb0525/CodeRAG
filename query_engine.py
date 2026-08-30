@@ -5,17 +5,7 @@ import warnings
 from typing import List, Dict, Any, Optional
 from dotenv import load_dotenv
 
-# Suppress harmless HuggingFace transformers warning logs
-os.environ["TRANSFORMERS_VERBOSITY"] = "error"
-warnings.filterwarnings("ignore")
-logging.getLogger("transformers").setLevel(logging.ERROR)
-
 # Third-party imports
-try:
-    from sentence_transformers import SentenceTransformer
-except ImportError:
-    SentenceTransformer = None
-
 try:
     import psycopg2
     import psycopg2.extras
@@ -27,22 +17,6 @@ except ImportError:
 # Configure logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger("QueryEngine")
-
-# Cache model instance globally to avoid re-loading weights on every query
-_EMBEDDING_MODEL = None
-
-
-def get_embedding_model(model_name: str = "all-MiniLM-L6-v2") -> SentenceTransformer:
-    """
-    Returns cached SentenceTransformer instance or initializes one.
-    """
-    global _EMBEDDING_MODEL
-    if SentenceTransformer is None:
-        raise RuntimeError("sentence-transformers is not installed. Run `pip install sentence-transformers`.")
-    if _EMBEDDING_MODEL is None:
-        logger.info(f"Loading query embedding model '{model_name}'...")
-        _EMBEDDING_MODEL = SentenceTransformer(model_name)
-    return _EMBEDDING_MODEL
 
 
 def sync_secrets():
@@ -69,7 +43,7 @@ def search_chunks(
     db_url: Optional[str] = None
 ) -> List[Dict[str, Any]]:
     """
-    1. Embeds user question using sentence-transformers (all-MiniLM-L6-v2).
+    1. Embeds user question using Google Gemini Embedding API (gemini-embedding-001).
     2. Executes cosine similarity search (<=> operator) against pgvector code_chunks table.
     3. Returns top_k matching chunks with file path, line numbers, text, language, and similarity score.
     """
@@ -81,10 +55,50 @@ def search_chunks(
     if psycopg2 is None:
         raise RuntimeError("psycopg2 is not installed. Please run `pip install psycopg2-binary`.")
 
-    # Step 1: Embed question
-    logger.info(f"Embedding search query: '{question}'")
-    model = get_embedding_model()
-    question_embedding = model.encode(question, convert_to_numpy=True).tolist()
+    # Step 1: Embed question with Gemini Embedding API (gemini-embedding-001, RETRIEVAL_QUERY task_type)
+    resolved_api_key = os.getenv("GEMINI_API_KEY")
+    if not resolved_api_key or resolved_api_key.strip() in ("", "your_gemini_api_key_here"):
+        raise ValueError("GEMINI_API_KEY is missing or invalid. Please set GEMINI_API_KEY in your .env file.")
+
+    logger.info(f"Embedding search query with Gemini API: '{question}'")
+    question_embedding = None
+
+    # Attempt 1: modern google-genai SDK
+    try:
+        from google import genai
+        from google.genai import types
+        client = genai.Client(api_key=resolved_api_key)
+        res = client.models.embed_content(
+            model="gemini-embedding-001",
+            contents=question,
+            config=types.EmbedContentConfig(
+                task_type="RETRIEVAL_QUERY",
+                output_dimensionality=384
+            )
+        )
+        if res and res.embeddings:
+            question_embedding = res.embeddings[0].values
+    except Exception as e_modern:
+        logger.debug(f"google-genai modern embed_content failed/skipped: {e_modern}")
+
+    # Attempt 2: legacy google-generativeai SDK
+    if question_embedding is None:
+        try:
+            import google.generativeai as ggenai
+            ggenai.configure(api_key=resolved_api_key)
+            res = ggenai.embed_content(
+                model="models/gemini-embedding-001",
+                content=question,
+                task_type="retrieval_query",
+                output_dimensionality=384
+            )
+            if res and "embedding" in res:
+                question_embedding = res["embedding"]
+        except Exception as e_legacy:
+            logger.error(f"google-generativeai legacy embed_content failed: {e_legacy}")
+
+    if question_embedding is None:
+        raise RuntimeError("Failed to generate embedding for query using Gemini API.")
 
     # Step 2: Query PostgreSQL with pgvector <=> cosine distance operator
     logger.info(f"Searching top {top_k} similar code chunks for repo: {repo_url}...")
