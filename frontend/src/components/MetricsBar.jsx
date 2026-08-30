@@ -30,7 +30,7 @@ export default function MetricsBar({ filesCount, chunksCount, activeRepo, backen
         </div>
         <div>
           <div className="metric-val" style={{ fontSize: '1rem', color: '#a5f3fc' }}>
-            all-MiniLM-L6-v2
+            gemini-embedding-001
           </div>
           <div className="metric-lbl">Embedding Engine (384d)</div>
         </div>
