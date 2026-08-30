@@ -211,7 +211,7 @@ def generate_embeddings(
         logger.info(f"Embedding batch {batch_num}/{total_batches} ({len(batch_texts)} chunks)...")
 
         batch_embeddings = None
-        max_retries = 3
+        max_retries = 5
 
         for attempt in range(1, max_retries + 1):
             try:
@@ -229,17 +229,23 @@ def generate_embeddings(
                 if res and res.embeddings and len(res.embeddings) == len(batch_texts):
                     batch_embeddings = [e.values for e in res.embeddings]
                     all_embeddings.extend(batch_embeddings)
+                    time.sleep(0.5)  # Slight delay to prevent bursting rate limits
                     break
                 else:
                     raise RuntimeError("API response did not return expected embedding list length.")
 
             except Exception as err:
-                logger.warning(f"Batch {batch_num} embedding attempt {attempt}/{max_retries} failed: {err}")
+                err_msg = str(err)
+                logger.warning(f"Batch {batch_num} embedding attempt {attempt}/{max_retries} failed: {err_msg}")
                 if attempt < max_retries:
-                    sleep_sec = 2 ** attempt
+                    if "429" in err_msg or "RESOURCE_EXHAUSTED" in err_msg or "Quota" in err_msg:
+                        sleep_sec = 25
+                        logger.info(f"Rate limit detected. Waiting {sleep_sec} seconds before retry...")
+                    else:
+                        sleep_sec = 2 ** attempt
                     time.sleep(sleep_sec)
                 else:
-                    raise RuntimeError(f"Failed to generate embeddings for batch {batch_num} after {max_retries} attempts: {err}")
+                    raise RuntimeError(f"Failed to generate embeddings for batch {batch_num} after {max_retries} attempts: {err_msg}")
 
     return all_embeddings
 
