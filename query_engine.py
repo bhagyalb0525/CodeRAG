@@ -61,44 +61,21 @@ def search_chunks(
         raise ValueError("GEMINI_API_KEY is missing or invalid. Please set GEMINI_API_KEY in your .env file.")
 
     logger.info(f"Embedding search query with Gemini API: '{question}'")
-    question_embedding = None
-
-    # Attempt 1: modern google-genai SDK
-    try:
-        from google import genai
-        from google.genai import types
-        client = genai.Client(api_key=resolved_api_key)
-        res = client.models.embed_content(
-            model="gemini-embedding-001",
-            contents=question,
-            config=types.EmbedContentConfig(
-                task_type="RETRIEVAL_QUERY",
-                output_dimensionality=384
-            )
+    from google import genai
+    from google.genai import types
+    client = genai.Client(api_key=resolved_api_key)
+    res = client.models.embed_content(
+        model="gemini-embedding-001",
+        contents=question,
+        config=types.EmbedContentConfig(
+            task_type="RETRIEVAL_QUERY",
+            output_dimensionality=384
         )
-        if res and res.embeddings:
-            question_embedding = res.embeddings[0].values
-    except Exception as e_modern:
-        logger.debug(f"google-genai modern embed_content failed/skipped: {e_modern}")
-
-    # Attempt 2: legacy google-generativeai SDK
-    if question_embedding is None:
-        try:
-            import google.generativeai as ggenai
-            ggenai.configure(api_key=resolved_api_key)
-            res = ggenai.embed_content(
-                model="models/gemini-embedding-001",
-                content=question,
-                task_type="retrieval_query",
-                output_dimensionality=384
-            )
-            if res and "embedding" in res:
-                question_embedding = res["embedding"]
-        except Exception as e_legacy:
-            logger.error(f"google-generativeai legacy embed_content failed: {e_legacy}")
-
-    if question_embedding is None:
+    )
+    if not res or not res.embeddings:
         raise RuntimeError("Failed to generate embedding for query using Gemini API.")
+    
+    question_embedding = res.embeddings[0].values
 
     # Step 2: Query PostgreSQL with pgvector <=> cosine distance operator
     logger.info(f"Searching top {top_k} similar code chunks for repo: {repo_url}...")
@@ -155,11 +132,11 @@ def generate_answer(
     """
     1. Formats context prompt containing retrieved code chunks with file paths and line ranges.
     2. Instructs Gemini to answer strictly using only the provided code context.
-    3. Calls Google Gemini API and returns the generated response text.
+    3. Calls Google Gemini API (gemini-2.5-flash) and returns generated response text.
     """
     sync_secrets()
     resolved_api_key = api_key or os.getenv("GEMINI_API_KEY")
-    if not resolved_api_key or resolved_api_key.strip() == "your_gemini_api_key_here":
+    if not resolved_api_key or resolved_api_key.strip() in ("", "your_gemini_api_key_here"):
         raise ValueError(
             "GEMINI_API_KEY is missing or invalid. Please set your API key in your .env file "
             "or obtain one from https://aistudio.google.com/app/apikey"
@@ -196,35 +173,19 @@ USER QUESTION:
 
 ANSWER:"""
 
-    logger.info("Calling Google Gemini API for answer generation...")
+    logger.info("Calling Google Gemini API (gemini-2.5-flash) for answer generation...")
 
-    # Attempt 1: Modern google-genai SDK
-    try:
-        from google import genai
-        client = genai.Client(api_key=resolved_api_key)
-        # Try gemini-2.5-flash or fallback model
-        response = client.models.generate_content(
-            model="gemini-2.5-flash",
-            contents=prompt
-        )
-        if response and response.text:
-            return response.text
-    except Exception as e_genai:
-        logger.debug(f"google-genai modern SDK call skipped/failed: {e_genai}")
+    from google import genai
+    client = genai.Client(api_key=resolved_api_key)
+    response = client.models.generate_content(
+        model="gemini-2.5-flash",
+        contents=prompt
+    )
 
-    # Attempt 2: Classic google-generativeai SDK
-    try:
-        import google.generativeai as ggenai
-        ggenai.configure(api_key=resolved_api_key)
-        model = ggenai.GenerativeModel("gemini-1.5-flash")
-        response = model.generate_content(prompt)
-        if response and response.text:
-            return response.text
-    except Exception as e_legacy:
-        logger.error(f"google-generativeai legacy SDK call failed: {e_legacy}")
-        raise RuntimeError(f"Failed to query Gemini API: {e_legacy}")
-
-    raise RuntimeError("Could not retrieve a response from Google Gemini API.")
+    if response and response.text:
+        return response.text
+    else:
+        raise RuntimeError("Google Gemini API returned an empty response.")
 
 
 if __name__ == "__main__":

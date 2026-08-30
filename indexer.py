@@ -215,38 +215,19 @@ def generate_embeddings(
 
         for attempt in range(1, max_retries + 1):
             try:
-                # Attempt modern google-genai SDK
-                try:
-                    from google import genai
-                    from google.genai import types
-                    client = genai.Client(api_key=resolved_api_key)
-                    res = client.models.embed_content(
-                        model="gemini-embedding-001",
-                        contents=batch_texts,
-                        config=types.EmbedContentConfig(
-                            task_type="RETRIEVAL_DOCUMENT",
-                            output_dimensionality=384
-                        )
-                    )
-                    if res and res.embeddings:
-                        batch_embeddings = [e.values for e in res.embeddings]
-                except Exception as e_modern:
-                    logger.debug(f"google-genai modern embed attempt {attempt} failed/skipped: {e_modern}")
-
-                # Attempt legacy google-generativeai SDK if modern didn't return
-                if batch_embeddings is None:
-                    import google.generativeai as ggenai
-                    ggenai.configure(api_key=resolved_api_key)
-                    res = ggenai.embed_content(
-                        model="models/gemini-embedding-001",
-                        content=batch_texts,
-                        task_type="retrieval_document",
+                from google import genai
+                from google.genai import types
+                client = genai.Client(api_key=resolved_api_key)
+                res = client.models.embed_content(
+                    model="gemini-embedding-001",
+                    contents=batch_texts,
+                    config=types.EmbedContentConfig(
+                        task_type="RETRIEVAL_DOCUMENT",
                         output_dimensionality=384
                     )
-                    if res and "embedding" in res:
-                        batch_embeddings = res["embedding"]
-
-                if batch_embeddings is not None and len(batch_embeddings) == len(batch_texts):
+                )
+                if res and res.embeddings and len(res.embeddings) == len(batch_texts):
+                    batch_embeddings = [e.values for e in res.embeddings]
                     all_embeddings.extend(batch_embeddings)
                     break
                 else:
